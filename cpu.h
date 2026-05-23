@@ -59,12 +59,20 @@ private:
 		r.f = (z << 7) | (n << 6) | (h << 5) | (c << 4); // | (r.f & 0x0F) not needed cause bottom 4 bits dont hold meaningful data and should be 0
 	}
 
+	// Interrupt enable
+	bool ime = false;
+
 	// Fetch helpers
 	uint8_t fetch8();   // Reads one byte at Pc, then PC++
 	uint16_t fetch16(); // Reads two bytes at PC and PC + 1, then PC += 2;
 
+	// Register helpers
 	uint8_t getReg8(uint8_t id);
 	void setReg8(uint8_t id, uint8_t val);
+
+	//Push and pop helpers
+	void push(uint16_t val);
+	uint16_t pop();
 
 	// Pointer to bus object to call things like bus->read(), etc
 	Bus* bus;
