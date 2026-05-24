@@ -59,6 +59,38 @@ uint16_t CPU::pop() {
 }
 
 int CPU::step() {
+
+	// ime pending check for ei
+	if (ime_pending) {
+		ime_pending = false;
+		ime = true;
+	}
+
+	// Interrupt
+	if (ime) {
+		uint8_t triggered = bus->read(0xFF0F) & bus->read(0xFFFF) & 0x1F;
+		if (triggered) {
+			ime = false;
+			uint8_t IF = bus->read(0xFF0F);
+			static const uint16_t vectors[] = {
+				0x0040, // VBlank
+				0x0048, // LCD STAT
+				0x0050, // Timer
+				0x0058, // Serial
+				0x0060  // Joypad
+			};
+			for (int i = 0; i < 5; i++) {
+				if (triggered & (1 << i)) {
+					bus->write(0xFF0F, IF & ~(1 << i));
+					push(r.pc);
+					r.pc = vectors[i];
+					break;
+				}
+			}
+			return 20;
+		}
+	}
+
 	uint8_t opcode = fetch8();
 	uint8_t dst = (opcode >> 3) & 0x07; // bits 5-3, 8-bit register dest
 	uint8_t src = opcode & 0x07;         // bits 2-0, 8-bit register src
@@ -321,7 +353,7 @@ int CPU::step() {
 
 		switch (dst) {
 
-		// add a, r8
+			// add a, r8
 		case 0: {
 			uint16_t res = r.a + val;
 			setFlags((res & 0xFF) == 0, false, ((r.a & 0x0F) + (val & 0x0F)) > 0x0F, res > 0xFF);
@@ -329,16 +361,16 @@ int CPU::step() {
 			return cycles;
 		}
 
-		// adc a, r8
+			  // adc a, r8
 		case 1: {
 			uint8_t c = flagC();
 			uint16_t res = r.a + val + c;
-			setFlags((res & 0xFF) == 0, false, ((r.a & 0xFF) + (val & 0xFF) + c) > 0x0F, res > 0xFF);
+			setFlags((res & 0xFF) == 0, false, ((r.a & 0x0F) + (val & 0x0F) + c) > 0x0F, res > 0xFF);
 			r.a = res & 0xFF;
 			return cycles;
 		}
 
-		//sub a, r8
+			  //sub a, r8
 		case 2: {
 			uint8_t res = r.a - val;
 			setFlags(res == 0, true, (r.a & 0x0F) < (val & 0x0F), r.a < val);
@@ -346,7 +378,7 @@ int CPU::step() {
 			return cycles;
 		}
 
-		// sbc a, r8
+			  // sbc a, r8
 		case 3: {
 			uint8_t c = flagC();
 			uint16_t res = r.a - val - c;
@@ -355,28 +387,28 @@ int CPU::step() {
 			return cycles;
 		}
 
-		// and a, r8
+			  // and a, r8
 		case 4: {
 			r.a &= val;
 			setFlags(r.a == 0, false, true, false);
 			return cycles;
 		}
 
-		// xor a, r8
+			  // xor a, r8
 		case 5: {
 			r.a ^= val;
 			setFlags(r.a == 0, false, false, false);
 			return cycles;
 		}
 
-		// or a, r8
+			  // or a, r8
 		case 6: {
 			r.a |= val;
 			setFlags(r.a == 0, false, false, false);
 			return cycles;
 		}
 
-		// cp a, r8
+			  // cp a, r8
 		case 7: {
 			setFlags(r.a == val, true, (r.a & 0x0F) < (val & 0x0F), r.a < val);
 			return cycles;
@@ -457,7 +489,7 @@ int CPU::step() {
 	}
 
 	// ret cond
-	if ((opcode & 0xE7) == 0xC0) {
+	if ((opcode & 0xE7) == 0xC0 && opcode <= 0xDF) {
 		if ((cond == 0) && !flagZ()) {
 			r.pc = pop();
 			return 20;
@@ -491,7 +523,7 @@ int CPU::step() {
 	}
 
 	// jp cond, imm16
-	if ((opcode & 0xE7) == 0xC2) {
+	if ((opcode & 0xE7) == 0xC2 && opcode <= 0xDF) {
 		uint16_t addr = fetch16();
 		if ((cond == 0) && !flagZ()) {
 			r.pc = addr;
@@ -525,7 +557,7 @@ int CPU::step() {
 	}
 
 	// call cond. imm16
-	if ((opcode & 0xE7) == 0xC4) {
+	if ((opcode & 0xE7) == 0xC4 && opcode <= 0xDF) {
 		uint16_t addr = fetch16();
 		if ((cond == 0) && !flagZ()) {
 			push(r.pc);
@@ -597,4 +629,200 @@ int CPU::step() {
 		}
 		return 16;
 	}
+
+	// ldh [c], a
+	if (opcode == 0xE2) {
+		bus->write((0xFF00 + r.c), r.a);
+		return 8;
+	}
+
+	// ldh [imm8], a
+	if (opcode == 0xE0) {
+		bus->write(0xFF00 + fetch8(), r.a);
+		return 12;
+	}
+
+	// ld [imm16], a
+	if (opcode == 0xEA) {
+		bus->write(fetch16(), r.a);
+		return 16;
+	}
+
+	// ldh a, [c]
+	if (opcode == 0xF2) {
+		r.a = bus->read(0xFF00 + r.c);
+		return 8;
+	}
+
+	// ldh a, [imm8]
+	if (opcode == 0xF0) {
+		r.a = bus->read(0xFF00 + fetch8());
+		return 12;
+	}
+
+	// ld a, [imm16]
+	if (opcode == 0xFA) {
+		r.a = bus->read(fetch16());
+		return 16;
+	}
+
+	// add sp, imm8
+	if (opcode == 0xE8) {
+		int8_t offset = static_cast<int8_t>(fetch8());
+		uint8_t sp_lo = r.sp & 0xFF;
+		uint8_t off = (uint8_t)(offset);
+		setFlags(false, false, ((sp_lo & 0x0F) + (off & 0x0F)) > 0x0F, (sp_lo + off) > 0xFF);
+		r.sp += offset;
+		return 16;
+	}
+
+	// ld hl, sp + imm8
+	if (opcode == 0xF8) {
+		int8_t offset = static_cast<int8_t>(fetch8());
+		uint8_t sp_lo = r.sp & 0xFF;
+		uint8_t off = (uint8_t)(offset);
+		setFlags(false, false, ((sp_lo & 0x0F) + (off & 0x0F)) > 0x0F, (sp_lo + off) > 0xFF);
+		r.hl = r.sp + offset;
+		return 12;
+	}
+
+	// ld sp, hl
+	if (opcode == 0xF9) {
+		r.sp = r.hl;
+		return 8;
+	}
+
+	// di
+	if (opcode == 0xF3) {
+		ime = false;
+		return 4;
+	}
+
+	// ei
+	if (opcode == 0xFB) {
+		ime_pending = true;
+		return 4;
+	}
+
+	//------------------------------------------
+	// 0xCB Prefix
+	//------------------------------------------
+	if (opcode == 0xCB) {
+		uint8_t cb_op = fetch8();
+		uint8_t reg = cb_op & 0x07;
+		uint8_t bit = (cb_op >> 3) & 0x07;
+
+		uint8_t val = getReg8(reg);
+		int cycles = (reg == 6) ? 16 : 8;
+
+		// rlc r8
+		if ((cb_op & 0xF8) == 0x00) {
+			bool c = (val >> 7) & 1;
+			uint8_t res = (val << 1) | c;
+			setReg8(reg, res);
+			setFlags(res == 0, false, false, c);
+			return cycles;
+		}
+
+		// rrc r8
+		if ((cb_op & 0xF8) == 0x08) {
+			bool c = val & 0x01;
+			uint8_t res = (val >> 1) | (c << 7);
+			setReg8(reg, res);
+			setFlags(res == 0, false, false, c);
+			return cycles;
+		}
+
+		// rl r8
+		if ((cb_op & 0xF8) == 0x10) {
+			bool c = (val >> 7) & 1;
+			uint8_t res = (val << 1) | flagC();
+			setReg8(reg, res);
+			setFlags(res == 0, false, false, c);
+			return cycles;
+		}
+
+		// rr r8
+		if ((cb_op & 0xF8) == 0x18) {
+			bool c = val & 0x01;
+			uint8_t res = (val >> 1) | (flagC() << 7);
+			setReg8(reg, res);
+			setFlags(res == 0, false, false, c);
+			return cycles;
+		}
+
+		// sla r8
+		if ((cb_op & 0xF8) == 0x20) {
+			bool c = (val >> 7) & 1;
+			uint8_t res = (val << 1);
+			setReg8(reg, res);
+			setFlags(res == 0, false, false, c);
+			return cycles;
+		}
+
+		// sra r8
+		if ((cb_op & 0xF8) == 0x28) {
+			bool c = val & 0x01;
+			uint8_t res = (val >> 1) | (val & 0x80);
+			setReg8(reg, res);
+			setFlags(res == 0, false, false, c);
+			return cycles;
+		}
+
+		// swap r8
+		if ((cb_op & 0xF8) == 0x30) {
+			uint8_t res = (val << 4) | (val >> 4);
+			setReg8(reg, res);
+			setFlags(res == 0, false, false, false);
+			return cycles;
+		}
+
+		// srl r8
+		if ((cb_op & 0xF8) == 0x38) {
+			bool c = val & 0x01;
+			uint8_t res = (val >> 1);
+			setReg8(reg, res);
+			setFlags(res == 0, false, false, c);
+			return cycles;
+		}
+
+		// bit b3, r8
+		if ((cb_op & 0xC0) == 0x40) {
+			bool test_bit = (val >> bit) & 1;
+			if (test_bit) {
+				setFlags(false, false, true, flagC());
+			}
+			else {
+				setFlags(true, false, true, flagC());
+			}
+			return (reg == 6) ? 12 : 8;
+		}
+
+		// res b3, r8
+		if ((cb_op & 0xC0) == 0x80) {
+			uint8_t mask = ~(0x01 << bit);
+			setReg8(reg, (val & mask));
+			return cycles;
+		}
+
+		// set b3, r8
+		if ((cb_op & 0xC0) == 0xC0) {
+			uint8_t mask = (0x01 << bit);
+			setReg8(reg, (val | mask));
+			return cycles;
+		}
+
+		throw std::runtime_error("Unknown CB opcode: " + std::to_string(cb_op));
+	}
+	// Illegal opcodes
+	if (opcode == 0xD3 || opcode == 0xDB || opcode == 0xDD ||
+		opcode == 0xE3 || opcode == 0xE4 || opcode == 0xEB ||
+		opcode == 0xEC || opcode == 0xED || opcode == 0xF4 ||
+		opcode == 0xFC || opcode == 0xFD) {
+		throw std::runtime_error("Illegal opcode - CPU locked");
+	}
+
+	// Unknown opcodes
+	throw std::runtime_error("Unimplemented opcode");
+	
 }
