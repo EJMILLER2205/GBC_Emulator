@@ -17,7 +17,7 @@ private:
 		// AF
 		union {
 			struct {
-				uint8_t a, f;
+				uint8_t f, a;
 			};
 			uint16_t af;
 		};
@@ -61,6 +61,7 @@ private:
 
 	// Interrupt enable
 	bool ime = false;
+	bool ime_pending = false;
 
 	// Fetch helpers
 	uint8_t fetch8();   // Reads one byte at Pc, then PC++
