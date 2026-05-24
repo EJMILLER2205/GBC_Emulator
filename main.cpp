@@ -2,6 +2,7 @@
 #include <iostream>
 #include "bus.h"
 #include "cpu.h"
+#include <stdexcept>
 
 int main(int argc, char* argv[]) { // These arguments in main required for SDL2 to link properly
 
@@ -48,7 +49,13 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 		// Run one frame wortht of cycles (~70224 cycles at 60fps)
 		int cycles = 0;
 		while (cycles < 70224) {
-			cycles += cpu.step();
+			try {
+				cycles += cpu.step();
+			}
+			catch (const std::runtime_error& e) {
+				std::cerr << e.what() << "\n";
+				cycles += 4;
+			}
 		}
 
 		SDL_SetRenderDrawColor(renderer, 15, 56, 15, 255); // Sets active color (RGBA) to the default gameboy green
