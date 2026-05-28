@@ -3,6 +3,8 @@
 #include "bus.h"
 #include "cpu.h"
 #include <stdexcept>
+#include <windows.h>
+#include "timer.h"
 
 int main(int argc, char* argv[]) { // These arguments in main required for SDL2 to link properly
 
@@ -25,13 +27,16 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 
 	// Creates bus object and loads ROM
 	Bus bus;
-	if (!bus.loadROM("roms/tetris.gb")) {
+	if (!bus.loadROM("roms/cpu_instrs/individual/02-interrupts.gb")) {
 		std::cerr << "Failed to load ROM\n";
 		return 1;
 	}
 
 	// Creates CPU object
 	CPU cpu(bus);
+
+	// Creates timer object
+	Timer timer(bus);
 
 	bool running = true; // Functions as kill switch for the main loop
 	SDL_Event e;		 // Union struct that stores whatever most recently happened (key press, mouse move, window close, etc)
@@ -50,7 +55,9 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 		int cycles = 0;
 		while (cycles < 70224) {
 			try {
-				cycles += cpu.step();
+				int taken = cpu.step();
+				cycles += taken;
+				timer.tick(taken); // Tick timer with every cpu step
 			}
 			catch (const std::runtime_error& e) {
 				std::cerr << e.what() << "\n";
