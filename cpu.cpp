@@ -1,5 +1,6 @@
 #include "cpu.h"
 #include <stdexcept>
+#include <iostream>
 
 CPU::CPU(Bus& bus) : bus(&bus) {
 	// Post boot default register states
@@ -59,6 +60,18 @@ uint16_t CPU::pop() {
 }
 
 int CPU::step() {
+	// If halted, burn cycles until and interrupt wakes it up
+	if (halted) {
+		// Check if any interrupt is pending
+		uint8_t triggered = bus->read(0xFF0F) & bus->read(0xFFFF) & 0x1F;
+		if (triggered) {
+			halted = false; // Wake up
+		}
+		else {
+			return 4; // Still halted, burn 4 cycles and return
+		}
+	}
+
 
 	// ime pending check for ei
 	if (ime_pending) {
@@ -233,19 +246,20 @@ int CPU::step() {
 	// daa
 	if (opcode == 0x27) {
 		uint8_t a = r.a;
+		bool c = false;
 
 		if (!flagN()) {
 			// After addition
+			if (flagC() || a > 0x99) { a += 0x60; c = true; }
 			if (flagH() || (a & 0x0F) > 9) a += 0x06;
-			if (flagC() || a > 0x9F) a += 0x60;
 		}
 		else {
 			// After subtraction
+			if (flagC()) { a -= 0x60; c = true; }
 			if (flagH()) a -= 0x06;
-			if (flagC()) a -= 0x60;
 		}
 
-		setFlags(a == 0, flagN(), false, flagC() || r.a > 0x99);
+		setFlags(a == 0, flagN(), false, c);
 		r.a = a;
 		return 4;
 	}
@@ -335,6 +349,7 @@ int CPU::step() {
 	//------------------------------------------
 	// halt
 	if (opcode == 0x76) {
+		halted = true;
 		return 4;
 	}
 
@@ -584,8 +599,9 @@ int CPU::step() {
 
 	// call imm16
 	if (opcode == 0xCD) {
-		push(r.pc);
-		r.pc = fetch16();
+		uint16_t target = fetch16(); // fetch target first, advancing PC past the instruction
+		push(r.pc);                  // now push the correct return address (after CALL)
+		r.pc = target;               // then jump
 		return 24;
 	}
 
