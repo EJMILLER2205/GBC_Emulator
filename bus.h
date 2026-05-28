@@ -9,6 +9,7 @@ public:
 	uint8_t read(uint16_t addr); // Read byte
 	void write(uint16_t addr, uint8_t val); // Write byte
 	bool loadROM(const std::string& path); // Load rom from disk to memory
+	void incrementDIV() { io[0x04]++; } // Allows timer tick to increment DIV drectly without going through the write reset, add a helper, or manipulate the io array directly in the timer
 
 private: 
 	// 8 bit data size on 16 bit address length
