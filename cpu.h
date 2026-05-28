@@ -59,6 +59,9 @@ private:
 		r.f = (z << 7) | (n << 6) | (h << 5) | (c << 4); // | (r.f & 0x0F) not needed cause bottom 4 bits dont hold meaningful data and should be 0
 	}
 
+	// Halt flag
+	bool halted = false;
+
 	// Interrupt enable
 	bool ime = false;
 	bool ime_pending = false;
