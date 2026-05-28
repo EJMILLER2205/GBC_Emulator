@@ -32,6 +32,19 @@ uint8_t Bus::read(uint16_t addr) {
 }
 
 void Bus::write(uint16_t addr, uint8_t val) {
+	// Serial output for Blargg test roms
+	// Test rom wil write characters to 0xFF01 (serial data) and trigger transfer by writing 0x81 to 0xFF02 (serial control)
+	if (addr == 0xFF02 && val == 0x81) {
+		std::cout << (char)io[0x01]; // Print the character in FF01
+		std::cout.flush();
+	}
+
+	// For interrupts
+	if (addr == 0xFF04) {
+		io[0x04] = 0; // any write resets DIV to 0
+		return;
+	}
+
 	if (addr <= 0x7FFF) return; // Cannot write
 	if (addr <= 0x9FFF) { vram[addr - 0x8000] = val; return; }
 	if (addr <= 0xBFFF) return; // Cannot write
