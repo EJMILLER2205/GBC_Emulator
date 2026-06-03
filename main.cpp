@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <windows.h>
 #include "timer.h"
+#include "ppu.h"
+#include <vector>
 
 int main(int argc, char* argv[]) { // These arguments in main required for SDL2 to link properly
 
@@ -27,7 +29,7 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 
 	// Creates bus object and loads ROM
 	Bus bus;
-	if (!bus.loadROM("roms/cpu_instrs/individual/02-interrupts.gb")) {
+	if (!bus.loadROM("roms/cpu_instrs/cpu_instrs.gb")) {
 		std::cerr << "Failed to load ROM\n";
 		return 1;
 	}
@@ -37,6 +39,17 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 
 	// Creates timer object
 	Timer timer(bus);
+
+	// Creates PPU object
+	PPU ppu(bus);
+
+	// Creates texture pointer
+	SDL_Texture* texture = SDL_CreateTexture(
+		renderer,
+		SDL_PIXELFORMAT_RGB24,
+		SDL_TEXTUREACCESS_STREAMING,
+		160, 144
+	);
 
 	bool running = true; // Functions as kill switch for the main loop
 	SDL_Event e;		 // Union struct that stores whatever most recently happened (key press, mouse move, window close, etc)
@@ -58,19 +71,35 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 				int taken = cpu.step();
 				cycles += taken;
 				timer.tick(taken); // Tick timer with every cpu step
+				ppu.tick(taken); // Ticks for the ppu
 			}
 			catch (const std::runtime_error& e) {
 				std::cerr << e.what() << "\n";
 				cycles += 4;
 			}
 		}
+		// After cycle loop, render the frame
+		if (ppu.frameReady()) {
+			ppu.clearFrameReady();
 
-		SDL_SetRenderDrawColor(renderer, 15, 56, 15, 255); // Sets active color (RGBA) to the default gameboy green
-		SDL_RenderClear(renderer);						   // Fills the entire window with the selected color, wiping previous frame
-		SDL_RenderPresent(renderer);					   // Flips the back buffer to the screen (double buffering). Nothing is visible until this is called
+			// Convert framebuffer to RGB24 format for SDL
+			std::vector<uint8_t> pixels(160 * 144 * 3);
+			for (int i = 0; i < 160 * 144; i++) {
+				uint32_t color = ppu.framebuffer[i];
+				pixels[i * 3 + 0] = (color >> 16) & 0xFF; // R
+				pixels[i * 3 + 1] = (color >> 8) & 0xFF; // G
+				pixels[i * 3 + 2] = color & 0xFF; // B
+			}
+
+			SDL_UpdateTexture(texture, nullptr, pixels.data(), 160 * 3);
+			SDL_RenderClear(renderer);
+			SDL_RenderCopy(renderer, texture, nullptr, nullptr);
+			SDL_RenderPresent(renderer);
+		}
 	}
 
 	//Destroy in reverse order of creation
+	SDL_DestroyTexture(texture);
 	SDL_DestroyRenderer(renderer);
 	SDL_DestroyWindow(window);
 	SDL_Quit();
