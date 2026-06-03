@@ -29,7 +29,7 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 
 	// Creates bus object and loads ROM
 	Bus bus;
-	if (!bus.loadROM("roms/cpu_instrs/cpu_instrs.gb")) {
+	if (!bus.loadROM("roms/dmg-acid2.gb")) {
 		std::cerr << "Failed to load ROM\n";
 		return 1;
 	}
@@ -82,7 +82,7 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 		if (ppu.frameReady()) {
 			ppu.clearFrameReady();
 
-			// Convert framebuffer to RGB24 format for SDL
+			// Convert framebuffer to RGB24 format for SDL (3 bytes per pixel)
 			std::vector<uint8_t> pixels(160 * 144 * 3);
 			for (int i = 0; i < 160 * 144; i++) {
 				uint32_t color = ppu.framebuffer[i];
@@ -91,9 +91,13 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 				pixels[i * 3 + 2] = color & 0xFF; // B
 			}
 
+			// Uploads pixel data from ram to gpu texture (texture to update, which region to update (nullptr is all of it), pointer to raw pixel byte array in ram, the pitch (how many bytes per row))
 			SDL_UpdateTexture(texture, nullptr, pixels.data(), 160 * 3);
+			// Wipes the renderers back buffer with a solid color (resets frame for new frame)
 			SDL_RenderClear(renderer);
+			// Draws the texture onto the renderers back buffer (renderer to draw into, the texture to draw, which part of source rectangle to use (nullptr is all of it), where to draw destination rectangle (nullptr is filling the entire window))
 			SDL_RenderCopy(renderer, texture, nullptr, nullptr);
+			// Flips the bakc buffer to the screen
 			SDL_RenderPresent(renderer);
 		}
 	}
