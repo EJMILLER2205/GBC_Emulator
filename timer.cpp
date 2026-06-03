@@ -25,7 +25,7 @@ void Timer::tick(int cycles) {
 
         uint8_t tima = bus->read(0xFF05);
         if (tima == 0xFF) {
-            // TIMA overflowed — reset to TMA and request timer interrupt
+            // TIMA overflowed â€” reset to TMA and request timer interrupt
             bus->write(0xFF05, bus->read(0xFF06)); // TIMA = TMA
             uint8_t IF = bus->read(0xFF0F);
             bus->write(0xFF0F, IF | 0x04);         // set bit 2 of IF
