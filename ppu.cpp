@@ -1,0 +1,161 @@
+#include "ppu.h"
+
+PPU::PPU(Bus& bus) : bus(&bus) {}
+
+void PPU::tick(int cycles) {
+	// Check if LCD is enabled
+	if (!(getLCDC() & 0x80)) {
+		return;
+	}
+
+	cycleCount += cycles;
+
+	uint8_t ly = getLY();
+
+	if (ly < 144) {
+		// Visible scanlines
+		if (cycleCount >= 80 && cycleCount < 252) {
+			// Mode 3 - Drawing
+			setMode(3);
+		}
+		else if (cycleCount >= 252 && cycleCount < 456) {
+			// Mode 0 - HBlank
+			setMode(0);
+		}
+		else if (cycleCount < 80) {
+			// Mode 2 - OAM scan
+			setMode(2);
+		}
+	}
+	else {
+		// VBlank
+		setMode(1);
+	}
+
+	// End of scanline
+	if (cycleCount >= 456) {
+		cycleCount -= 456;
+		renderScanline(); // Render this line before advancing
+		setLY(ly + 1);
+
+		// End of frame
+		if (getLY() == 154) {
+			setLY(0);
+			frameComplete = true;
+		}
+
+		// Request VBlank interrupt at line 144
+		if (getLY() == 144) {
+			uint8_t IF = bus->read(0xFF0F);
+			bus->write(0xFF0F, IF | 0x01); // set bit 1
+		}
+	}
+}
+
+bool PPU::frameReady() { 
+	return frameComplete; 
+}
+
+void PPU::clearFrameReady() { 
+	frameComplete = false; 
+}
+
+void PPU::renderScanline() {
+	uint8_t lcdc = getLCDC();
+	uint8_t ly = getLY();
+
+	// Only render visible scanlines
+	if (ly >= 144) return;
+
+	// Only render if LCD is on
+	if (!(lcdc & 0x80)) return;
+
+	// Render background if enabled (LCDC bit 0)
+	if (lcdc & 0x01) {
+		renderBackground();
+	}
+
+	// Sprites later
+}
+
+void PPU::renderBackground() {
+	uint8_t ly = getLY();
+	if (ly >= 144) return; // Safety check
+
+	uint8_t lcdc = getLCDC();
+	uint8_t scy = getSCY();
+	uint8_t scx = getSCX();
+	uint8_t bgp = getBGP();
+
+	// Chooses tile map (LCDC bit 3)
+	uint16_t tileMapBase = (lcdc & 0x08) ? 0x9C00 : 0x9800; // 0 = 0x9800, 1 = 0x9C00
+
+	// Chooses which tile data region (LCDC bit 4)
+	bool unsignedIndex = (lcdc & 0x10); // 0 = 0x8800 (signed indexing, tile 0 is at 0x9000), 1 = 0x8000 (unsigned indexing)
+
+	// Chooses which row of the background it is on (accounting for scroll)
+	uint8_t bgY = ly + scy;       // Wraps naturally since both are using uint8_t
+	uint8_t tileRow = bgY / 8;    // Which row of tiles
+	uint8_t tilePixelY = bgY % 8; // Which pixel row inside the tile
+
+	// Render all 160 pixels on this scanline
+	for (int px = 0; px < 160; px++) {
+		uint8_t bgX = px + scx;       // wraps natrually
+		uint8_t tileCol = bgX / 8;    // which column of tiles
+		uint8_t tilePixelX = bgX % 8; // which pixel column within the tile
+
+		// Look up tile index from tile map
+		uint16_t tileMapAddr = tileMapBase + (tileRow * 32) + tileCol;
+		uint8_t tileIndex = bus->read(tileMapAddr);
+
+		// Get tile data address
+		uint16_t tileDataAddr;
+		if (unsignedIndex) {
+			tileDataAddr = 0x8000 + (tileIndex * 16); // 0x8000 base, tile index is unsigned 0-255
+		}
+		else {
+			// 0x8000 base, tile index is signed -128 to 127
+			// tile 0 lives at 0x9000
+			int8_t signedIndex = (int8_t)(tileIndex);
+			tileDataAddr = 0x9000 + (signedIndex * 16);
+		}
+
+		// Get the two bytes for this pixel row within the tile
+		uint8_t byte1 = bus->read(tileDataAddr + (tilePixelY * 2));
+		uint8_t byte2 = bus->read(tileDataAddr + (tilePixelY * 2) + 1);
+
+		// Extract the 2-bit color index for this pixel
+		// bit 7 is leftmost pixel, bit 0 is rightmost
+		uint8_t bitPos = 7 - tilePixelX;
+		uint8_t colorBit_lo = (byte1 >> bitPos) & 1;
+		uint8_t colorBit_hi = (byte2 >> bitPos) & 1;
+		uint8_t colorIndex = (colorBit_hi << 1) | colorBit_lo;
+
+		// Apply BGP palette
+		// BGP maps color indices to shades
+		// bits 1-0 = shade for index 0
+		// bits 3-2 = shade for index 1
+		// bits 5-4 = shade for index 2
+		// bits 7-6 = shade for index 3
+		uint8_t shade = (bgp >> (colorIndex * 2)) & 0x03;
+
+		// Map shade to RGB color
+		static const uint32_t colors[4] = {
+			0xE0F8D0, // 0 = white
+			0x88C070, // 1 = light gray
+			0x346856, // 2 = dark gray
+			0x081820  // 3 = black
+		};
+		framebuffer[ly * 160 + px] = colors[shade];
+	}
+}
+
+void PPU::renderSprites() {
+	// stub — will implement next
+}
+
+void PPU::setMode(uint8_t mode) {
+	uint8_t stat = bus->read(0xFF41);
+	stat = (stat & 0xFC) | (mode & 0x03);
+	bus->write(0xFF41, stat);
+}
