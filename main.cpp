@@ -7,6 +7,7 @@
 #include "timer.h"
 #include "ppu.h"
 #include <vector>
+#include "joypad.h"
 
 int main(int argc, char* argv[]) { // These arguments in main required for SDL2 to link properly
 
@@ -29,7 +30,7 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 
 	// Creates bus object and loads ROM
 	Bus bus;
-	if (!bus.loadROM("roms/dmg-acid2.gb")) {
+	if (!bus.loadROM("roms/2048.gb")) {
 		std::cerr << "Failed to load ROM\n";
 		return 1;
 	}
@@ -42,6 +43,10 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 
 	// Creates PPU object
 	PPU ppu(bus);
+
+	// Creates joypad
+	Joypad joypad(bus);
+	bus.setJoypad(&joypad);
 
 	// Creates texture pointer
 	SDL_Texture* texture = SDL_CreateTexture(
@@ -62,6 +67,7 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 			if (e.type == SDL_QUIT) {
 				running = false;
 			}
+			joypad.handleEvent(e); // Handles joypad events
 		}
 
 		// Run one frame wortht of cycles (~70224 cycles at 60fps)
