@@ -1,8 +1,25 @@
 #include "ppu.h"
+#include <stdexcept>
+#include <iostream>
 
 PPU::PPU(Bus& bus) : bus(&bus) {}
 
 void PPU::tick(int cycles) {
+	if (!(getLCDC() & 0x80)) {
+		// LCD off — still need to count cycles for timing
+		cycleCount += cycles;
+		if (cycleCount >= 70224) {
+			cycleCount -= 70224;
+			// Fire VBlank interrupt even with LCD off
+			// Some games need this to proceed with initialization
+			uint8_t IF = bus->read(0xFF0F);
+			bus->write(0xFF0F, IF | 0x01);
+			frameComplete = true;
+		}
+		setLY(0);
+		setMode(0);
+		return;
+	}
 	// Check if LCD is enabled
 	if (!(getLCDC() & 0x80)) {
 		return;
