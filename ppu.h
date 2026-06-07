@@ -27,8 +27,13 @@ private:
 	uint8_t getLCDC() { return bus->read(0xFF40); }
 	uint8_t getSCY() { return bus->read(0xFF42); }
 	uint8_t getSCX() { return bus->read(0xFF43); }
+	uint8_t getLYC() { return bus->read(0xFF45); }
 	uint8_t getBGP() { return bus->read(0xFF47); }
 	void setMode(uint8_t mode);
+	void requestSTAT() {
+		uint8_t IF = bus->read(0xFF0F);
+		bus->write(0xFF0F, IF | 0x02); // set bit 1 of IF
+	}
 
 	// Sprite reading helper functions
 	uint8_t getOBP0() { return bus->read(0xFF48); }
@@ -37,4 +42,6 @@ private:
 	// Window reading helper functions
 	uint8_t getWY() { return bus->read(0xFF4A); }
 	uint8_t getWX() { return bus->read(0xFF4B); }
+
+	std::array<uint8_t, 160 * 144> bgColorIndex{}; // tracks bg color index per pixel
 };
