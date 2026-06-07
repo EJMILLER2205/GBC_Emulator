@@ -55,11 +55,30 @@ void PPU::tick(int cycles) {
 		renderScanline(); // Render this line before advancing
 		setLY(ly + 1);
 
+		// LYC check
+		uint8_t newLY = getLY();
+		uint8_t lyc = getLYC();
+		uint8_t stat = bus->read(0xFF41);
+
+		if (newLY == lyc) {
+			// Set LYC=LY flag (bit 2)
+			stat |= 0x04;
+			bus->write(0xFF41, stat);
+			// Fire STAT interrupt if LYC interrupt enabled (bit 6)
+			if (stat & 0x40) requestSTAT();
+		}
+		else {
+			// Clear LYC=LY flag
+			stat &= ~0x04;
+			bus->write(0xFF41, stat);
+		}
+
 		// End of frame (all 144 visible and 10 VBlank scanlines)
 		if (getLY() == 154) {
 			setLY(0);
 			frameComplete = true;
 			windowLine = 0; // reset window line counter
+			bgColorIndex.fill(0); // reset color index buffer
 		}
 
 		// Fire VBlank interrupt at line 144
@@ -170,6 +189,7 @@ void PPU::renderBackground() {
 			0x346856, // 2 = dark gray
 			0x081820  // 3 = black
 		};
+		bgColorIndex[ly * 160 + px] = colorIndex; // store before palette lookup
 		// Puts the pixel shade into the frame buffer
 		framebuffer[ly * 160 + px] = colors[shade];
 	}
@@ -240,7 +260,6 @@ void PPU::renderSprites() {
 			uint8_t bitPos = 7 - px;
 			// Check for x-flip
 			if (visible[i].flags & 0x20) bitPos = px;
-
 			// Get colors
 			uint8_t colorBit_lo = (byte1 >> bitPos) & 1;
 			uint8_t colorBit_hi = (byte2 >> bitPos) & 1;
@@ -248,7 +267,6 @@ void PPU::renderSprites() {
 			if (colorIndex == 0) continue;
 			uint8_t pallete = (visible[i].flags & 0x10) ? getOBP1() : getOBP0();
 			uint8_t shade = (pallete >> (colorIndex * 2)) & 0x03;
-
 			// Colors struct
 			static const uint32_t colors[4] = {
 				0xE0F8D0, // 0 = white
@@ -256,19 +274,37 @@ void PPU::renderSprites() {
 				0x346856, // 2 = dark gray
 				0x081820  // 3 = black
 			};
-
 			// Write colors
-			int screenX = visible[i].x + px; // Pixels screen X position
-			if (screenX < 0 || screenX >= 160) continue; // Off screen
-			framebuffer[ly * 160 + screenX] = colors[shade]; // Write to frame buffer
+			int screenX = visible[i].x + px;
+			if (screenX < 0 || screenX >= 160) continue;
+
+			// Check sprite priority (flag bit 7)
+			// If set, sprite renders behind background colors 1-3
+			if (visible[i].flags & 0x80) {
+				if (bgColorIndex[ly * 160 + screenX] != 0) continue;
+			}
+			framebuffer[ly * 160 + screenX] = colors[shade];
 		}
 	}
 }
 
 void PPU::setMode(uint8_t mode) {
 	uint8_t stat = bus->read(0xFF41);
+	uint8_t currentMode = stat & 0x03;
+
+	// Only act on mode transitions
+	if (currentMode == mode) return;
+
+	//Update mode bits
 	stat = (stat & 0xFC) | (mode & 0x03);
 	bus->write(0xFF41, stat);
+
+	// Fire STAT interrupt based on new mode
+	switch (mode) {
+	case 0: if (stat & 0x08) requestSTAT(); break; // HBlank
+	case 1: if (stat & 0x10) requestSTAT(); break; // VBlank
+	case 2: if (stat & 0x20) requestSTAT(); break; // OAM scan
+	}
 }
 
 void PPU::renderWindow() {
@@ -342,6 +378,7 @@ void PPU::renderWindow() {
 			0x346856, // dark gray
 			0x081820  // black
 		};
+		bgColorIndex[ly * 160 + px] = colorIndex;
 		framebuffer[ly * 160 + px] = colors[shade];
 	}
 	windowLine++;
