@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 
 	// Creates bus object and loads ROM
 	Bus bus;
-	if (!bus.loadROM("roms/2048.gb")) {
+	if (!bus.loadROM("roms/tobu.gb")) {
 		std::cerr << "Failed to load ROM\n";
 		return 1;
 	}
@@ -59,8 +59,14 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 	bool running = true; // Functions as kill switch for the main loop
 	SDL_Event e;		 // Union struct that stores whatever most recently happened (key press, mouse move, window close, etc)
 
+	// Frame timing (60 fps)
+	const int TARGET_FPS = 60;
+	const int FRAME_TIME_MS = 1000 / TARGET_FPS; // 16ms per frame
+	Uint32 frameStart = 0;
+
 	// The main loop, ends when kill switch is set to false
 	while (running) {
+		frameStart = SDL_GetTicks(); // record start time
 		// Pulls one event off SDL's internal queue each call, fills the e struct with it, and returns 1 if there was an event and 0 if queue is empty
 		while (SDL_PollEvent(&e)) {
 			//If window is closed, call kill switch
@@ -106,7 +112,16 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 			// Flips the bakc buffer to the screen
 			SDL_RenderPresent(renderer);
 		}
+
+		// Cap to 60fps
+		Uint32 frameTime = SDL_GetTicks() - frameStart;
+		if (frameTime < FRAME_TIME_MS) {
+			SDL_Delay(FRAME_TIME_MS - frameTime); // Sleep for remaining time
+		}
 	}
+
+	// Save External RAM
+	bus.saveRAM();
 
 	//Destroy in reverse order of creation
 	SDL_DestroyTexture(texture);
