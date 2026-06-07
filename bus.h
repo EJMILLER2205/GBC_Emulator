@@ -3,6 +3,8 @@
 #include <array>
 #include <vector>
 #include <string>
+#include <iostream>
+#include <fstream>
 
 class Joypad; // Forward declaration to avoid circular dependency
 
@@ -14,6 +16,14 @@ public:
 	void incrementDIV() { io[0x04]++; } // Allows timer tick to increment DIV drectly without going through the write reset, add a helper, or manipulate the io array directly in the timer
 	void setJoypad(Joypad* jp) { joypad = jp; } // Sets the joypad up
 	size_t romSize() { return rom.size(); }
+	void saveRAM() {
+		if (!hasRAM) return;
+		std::ofstream sav(savePath, std::ios::binary);
+		if (sav) {
+			sav.write(reinterpret_cast<char*>(extRam.data()), extRam.size());
+			std::cerr << "Saved to " << savePath << "\n";
+		}
+	}
 
 private: 
 	// 8 bit data size on 16 bit address length
@@ -28,5 +38,15 @@ private:
 
 	// MBC state
 	uint8_t romBank = 1; // Current ROM bank (1-127)
+	uint8_t romBankMBC3 = 1; // MBC3 uses 7 bit bank number
+	uint16_t romBankMBC5 = 1; // MBC5 uses 9 bit bank number
 	bool hasMBC1 = false; // If the cart uses MBC1
+	bool hasMBC3 = false; // If the cart uses MBC3
+	bool hasMBC5 = false; // If the cart uses MBC5
+
+	// SRAM saving
+	std::array<uint8_t, 0x8000> extRam{}; // 32KB external RAM
+	bool hasRAM = false;
+	bool ramEnable = false;
+	std::string savePath;
 };
