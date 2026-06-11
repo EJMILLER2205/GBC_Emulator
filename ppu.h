@@ -22,6 +22,7 @@ private:
 	void renderBackground(); // Draws background tiles
 	void renderSprites(); // Draws sprites
 	void renderWindow(); // Renders window
+	bool scanlineRendered = false; // Track if we have rendered the scanline
 	uint8_t getLY() { return bus->read(0xFF44); }
 	void setLY(uint8_t v) { bus->write(0xFF44, v); }
 	uint8_t getLCDC() { return bus->read(0xFF40); }
@@ -44,4 +45,6 @@ private:
 	uint8_t getWX() { return bus->read(0xFF4B); }
 
 	std::array<uint8_t, 160 * 144> bgColorIndex{}; // tracks bg color index per pixel
+
+	bool vblankPending = false;
 };
