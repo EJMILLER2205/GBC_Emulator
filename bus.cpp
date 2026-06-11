@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iostream>
 #include "joypad.h"
+#include "apu.h"
 
 bool Bus::loadROM(const std::string& path) {
 	// Opens file for reading (raw bytes | start cursor at end of file)
@@ -19,6 +20,7 @@ bool Bus::loadROM(const std::string& path) {
 	if (rom.size() > 0x0147) {
 		uint8_t cartType = rom[0x0147];
 		hasMBC1 = (cartType >= 0x01 && cartType <= 0x03);
+		hasMBC2 = (cartType == 0x05 || cartType == 0x06);
 		hasMBC3 = (cartType >= 0x0F && cartType <= 0x13);
 		hasMBC5 = (cartType >= 0x19 && cartType <= 0x1E);
 		std::cerr << "Cart type: 0x" << std::hex << (int)cartType << "\n";
@@ -44,10 +46,17 @@ bool Bus::loadROM(const std::string& path) {
 		}
 	}
 
-	// Default pallete values to simulate boot ROM
+	// Full boot ROM simulation
+	io[0x40] = 0x91; // LCDC
+	io[0x41] = 0x00; // STAT  
+	io[0x42] = 0x00; // SCY
+	io[0x43] = 0x00; // SCX
+	io[0x45] = 0x00; // LYC
 	io[0x47] = 0xFC; // BGP
 	io[0x48] = 0xFF; // OBP0
 	io[0x49] = 0xFF; // OBP1
+	io[0x4A] = 0x00; // WY
+	io[0x4B] = 0x00; // WX
 
 	return true;
 }
@@ -59,9 +68,19 @@ uint8_t Bus::read(uint16_t addr) {
 	// ROM bank 1+ — switchable
 	if (addr <= 0x7FFF) {
 		uint32_t bank;
-		if (hasMBC5)      bank = romBankMBC5;
+		if (hasMBC5) bank = romBankMBC5;
 		else if (hasMBC3) bank = romBankMBC3;
-		else              bank = romBank;
+		else if (hasMBC2) bank = romBankMBC2;
+		else if (hasMBC1) {
+			// In mode 0, secondary register extends ROM bank
+			if (mbc1Mode == 0) {
+				bank = romBank | (mbc1RamBank << 5);
+			}
+			else {
+				bank = romBank;
+			}
+		}
+		else bank = romBank;
 		uint32_t bankAddr = (bank * 0x4000) + (addr - 0x4000);
 		return bankAddr < rom.size() ? rom[bankAddr] : 0xFF;
 	}
@@ -70,8 +89,12 @@ uint8_t Bus::read(uint16_t addr) {
 
 	// Read external Ram if there is SRAM enabled
 	if (addr <= 0xBFFF) {
+		if (hasMBC2 && addr <= 0xA1FF) {
+			return mbc2Ram[addr - 0xA000] & 0x0F; // Only lower nibble valid
+		}
 		if (hasRAM && ramEnable) {
-			return extRam[addr - 0xA000];
+			uint32_t ramBank = (hasMBC1 && mbc1Mode == 1) ? mbc1RamBank : 0;
+			return extRam[(ramBank * 0x2000) + (addr - 0xA000)];
 		}
 		return 0xFF;
 	}
@@ -126,6 +149,27 @@ void Bus::write(uint16_t addr, uint8_t val) {
 		if (addr >= 0x6000 && addr <= 0x7FFF) return; // RTC latch
 	}
 
+	if (hasMBC2) {
+		if (addr >= 0x0000 && addr <= 0x3FFF) {
+			// Bit 8 of address determines RAM enable vs bank switch
+			if (addr & 0x0100) {
+				// Bank switch — lower 4 bits
+				romBankMBC2 = val & 0x0F;
+				if (romBankMBC2 == 0) romBankMBC2 = 1;
+			}
+			else {
+				// RAM enable
+				ramEnable = (val & 0x0F) == 0x0A;
+			}
+			return;
+		}
+		// MBC2 RAM write
+		if (addr >= 0xA000 && addr <= 0xA1FF) {
+			if (ramEnable) mbc2Ram[addr - 0xA000] = val & 0x0F;
+			return;
+		}
+	}
+
 	// MBC1 bank switching
 	if (hasMBC1) {
 		// SRAM check
@@ -134,7 +178,19 @@ void Bus::write(uint16_t addr, uint8_t val) {
 			return;
 		}
 		if (addr >= 0x2000 && addr <= 0x3FFF) {
+			// 5 Bit rom bank number
 			romBank = val & 0x1F;
+			if (romBank == 0) romBank = 1;
+			return;
+		}
+		if (addr >= 0x4000 && addr <= 0x5FFF) {
+			// 2 bit secondary register
+			mbc1RamBank = val & 0x03;
+			return;
+		}
+		if (addr >= 0x6000 && addr <= 0x7FFF) {
+			// Mode switch
+			mbc1Mode = val & 0x01;
 			return;
 		}
 	}
@@ -154,13 +210,38 @@ void Bus::write(uint16_t addr, uint8_t val) {
 
 	if (addr == 0xFF00) { if (joypad) joypad->write(val); return; } // If joypad is writted to and joypad is enabled, then write to joypad values and return
 
+	// APU trigger handling
+	if (addr == 0xFF14) {
+		io[addr - 0xFF00] = val;
+		if ((val & 0x80) && apu) {
+			// Only trigger if frequency is non-zero
+			uint8_t nr13 = io[0x13];
+			uint8_t nr14 = val;
+			int freq = ((nr14 & 0x07) << 8) | nr13;
+			if (freq > 0) {
+				io[0x26] |= 0x01;
+				apu->triggerChannel1();
+			}
+		}
+		return;
+	}
+	if (addr == 0xFF19) {
+		io[addr - 0xFF00] = val;
+		if ((val & 0x80) && apu) {
+			io[0x26] |= 0x02; // set channel 2 active in NR52
+			apu->triggerChannel2();
+		}
+		return;
+	}
+
 	if (addr <= 0x7FFF) return; // Cannot write
 	if (addr <= 0x9FFF) { vram[addr - 0x8000] = val; return; }
 
 	// Write external Ram if SRAM is enabled
 	if (addr <= 0xBFFF) {
 		if (hasRAM && ramEnable) {
-			extRam[addr - 0xA000] = val;
+			uint32_t ramBank = (hasMBC1 && mbc1Mode == 1) ? mbc1RamBank : 0;
+			extRam[(ramBank * 0x2000) + (addr - 0xA000)] = val;
 		}
 		return;
 	}
