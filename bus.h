@@ -7,6 +7,7 @@
 #include <fstream>
 
 class Joypad; // Forward declaration to avoid circular dependency
+class APU;
 
 class Bus {
 public:
@@ -24,8 +25,10 @@ public:
 			std::cerr << "Saved to " << savePath << "\n";
 		}
 	}
+	void setAPU(APU* a) { apu = a; }
 
 private: 
+	APU* apu = nullptr;
 	// 8 bit data size on 16 bit address length
 	std::vector<uint8_t> rom;           // Vector for any rom size
 	std::array<uint8_t, 0x2000> vram{}; // 8KB vram
@@ -38,11 +41,17 @@ private:
 
 	// MBC state
 	uint8_t romBank = 1; // Current ROM bank (1-127)
+	uint8_t mbc1Mode = 0; // 0 = ROM banking, 1 = RAM banking
+	uint8_t mbc1RamBank = 0; // secondary 2-bit register
+	uint8_t romBankMBC2 = 1;
 	uint8_t romBankMBC3 = 1; // MBC3 uses 7 bit bank number
 	uint16_t romBankMBC5 = 1; // MBC5 uses 9 bit bank number
 	bool hasMBC1 = false; // If the cart uses MBC1
+	bool hasMBC2 = false; // If the cart uses MBC2
 	bool hasMBC3 = false; // If the cart uses MBC3
 	bool hasMBC5 = false; // If the cart uses MBC5
+
+	std::array<uint8_t, 512> mbc2Ram{}; // 512 nibbles of internal RAM
 
 	// SRAM saving
 	std::array<uint8_t, 0x8000> extRam{}; // 32KB external RAM
