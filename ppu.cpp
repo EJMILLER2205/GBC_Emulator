@@ -5,86 +5,100 @@
 PPU::PPU(Bus& bus) : bus(&bus) {}
 
 void PPU::tick(int cycles) {
-	if (!(getLCDC() & 0x80)) {
-		// LCD off — still need to count cycles for timing
+	// Track LCD state changes
+	static bool lastLCDOn = false;
+	bool lcdOn = (getLCDC() & 0x80) != 0;
+	if (lcdOn && !lastLCDOn) {
+		// LCD just turned on — reset cycle counter only
+		cycleCount = 0;
+	}
+	lastLCDOn = lcdOn;
+
+	// LCD off handler
+	if (!lcdOn) {
 		cycleCount += cycles;
+		uint8_t ly = cycleCount / 456;
+		if (ly > 153) ly = 153;
+		setLY(ly);
+		if (cycleCount >= 65664) {
+			setMode(1);
+		}
+		else {
+			uint16_t lineCycles = cycleCount % 456;
+			if (lineCycles < 80)       setMode(2);
+			else if (lineCycles < 252) setMode(3);
+			else                       setMode(0);
+		}
 		if (cycleCount >= 70224) {
 			cycleCount -= 70224;
-			// Fire VBlank interrupt even with LCD off
-			// Some games need this to proceed with initialization
 			uint8_t IF = bus->read(0xFF0F);
 			bus->write(0xFF0F, IF | 0x01);
 			frameComplete = true;
 		}
-		setLY(0);
-		setMode(0);
-		return;
-	}
-	// Check if LCD is enabled
-	if (!(getLCDC() & 0x80)) {
 		return;
 	}
 
+	if (vblankPending) {
+		vblankPending = false;
+		uint8_t IF = bus->read(0xFF0F);
+		bus->write(0xFF0F, IF | 0x01);
+	}
+
+	// LCD on handler
 	cycleCount += cycles;
-
 	uint8_t ly = getLY();
 
 	if (ly < 144) {
-		// Visible scanlines
 		if (cycleCount >= 80 && cycleCount < 252) {
-			// Mode 3 - Drawing
 			setMode(3);
+			if (!scanlineRendered) {
+				renderScanline();
+				scanlineRendered = true;
+			}
 		}
 		else if (cycleCount >= 252 && cycleCount < 456) {
-			// Mode 0 - HBlank
 			setMode(0);
 		}
 		else if (cycleCount < 80) {
-			// Mode 2 - OAM scan
 			setMode(2);
+			scanlineRendered = false;
 		}
 	}
 	else {
-		// VBlank
 		setMode(1);
 	}
 
-	// End of scanline
+	// End of scanline — use IF not WHILE
 	if (cycleCount >= 456) {
 		cycleCount -= 456;
-		renderScanline(); // Render this line before advancing
 		setLY(ly + 1);
+		scanlineRendered = false;
 
-		// LYC check
 		uint8_t newLY = getLY();
 		uint8_t lyc = getLYC();
 		uint8_t stat = bus->read(0xFF41);
 
 		if (newLY == lyc) {
-			// Set LYC=LY flag (bit 2)
 			stat |= 0x04;
 			bus->write(0xFF41, stat);
-			// Fire STAT interrupt if LYC interrupt enabled (bit 6)
 			if (stat & 0x40) requestSTAT();
 		}
 		else {
-			// Clear LYC=LY flag
 			stat &= ~0x04;
 			bus->write(0xFF41, stat);
 		}
 
-		// End of frame (all 144 visible and 10 VBlank scanlines)
-		if (getLY() == 154) {
-			setLY(0);
-			frameComplete = true;
-			windowLine = 0; // reset window line counter
-			bgColorIndex.fill(0); // reset color index buffer
+		// Fire VBlank interrupt at line 144
+		if (newLY == 144) {
+			vblankPending = true;
 		}
 
-		// Fire VBlank interrupt at line 144
-		if (getLY() == 144) {
-			uint8_t IF = bus->read(0xFF0F);
-			bus->write(0xFF0F, IF | 0x01); // set bit 1
+		// End of frame at line 154
+		if (newLY == 154) {
+			setLY(0);
+			frameComplete = true;
+			windowLine = 0;
+			bgColorIndex.fill(0);
 		}
 	}
 }
