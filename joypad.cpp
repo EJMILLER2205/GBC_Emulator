@@ -48,6 +48,7 @@ uint8_t Joypad::read() {
 		if (up) result &= ~0x04;
 		if (down) result &= ~0x08;
 	}
+	result = (result & 0x0F) | (select & 0x30); // Preserve the select bits in the result
 	return result;
 }
 
