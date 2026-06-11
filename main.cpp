@@ -8,11 +8,49 @@
 #include "ppu.h"
 #include <vector>
 #include "joypad.h"
+#include <commdlg.h> // Windows picker dialog
+#include "apu.h"
+
+// Allows for windows file picker dialog
+std::string openFileDialog() {
+	char filename[MAX_PATH] = ""; // Stores name of file, max path is default 260
+
+	OPENFILENAMEA ofn; // Configures file picker dialog
+	ZeroMemory(&ofn, sizeof(ofn)); // Fills dialog with all 0s to prevent crashing
+	ofn.lStructSize = sizeof(ofn); // Windows requires size
+	ofn.hwndOwner = nullptr; // Declares that there is no parent window
+	ofn.lpstrFilter = "Game Boy ROMs\0*.gb;*.gbc\0All Files\0*.*\0"; // File type filter (type, file extentions shown, secondary filter displayed name, show all files)
+	ofn.lpstrFile = filename; // Stores selected file to fileName array
+	ofn.nMaxFile = MAX_PATH; // Maximum size of file
+	ofn.lpstrTitle = "Select a Game Boy ROM"; // Title bar text
+	ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST; // User can only select files that exist | the folder path must also exist
+
+	// Prevents user from typing a fake path
+	if (GetOpenFileNameA(&ofn)) {
+		return std::string(filename);
+	}
+	return ""; // if user cancels
+}
 
 int main(int argc, char* argv[]) { // These arguments in main required for SDL2 to link properly
 
-	// Checks to make sure that display/window system was properly initialized
-	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+	// Determine ROM path
+	std::string romPath;
+	if (argc > 1) { // Checks if something was dragged onto the exe or passed via command line
+		romPath = argv[1]; // drag and drop
+	}
+	// If nothing was dragged into the exe. show file picker dialog instead
+	else {
+		romPath = openFileDialog(); // show file picker
+		// If user did not select a rom
+		if (romPath.empty()) {
+			std::cerr << "No ROM selected\n";
+			return 0;
+		}
+	}
+
+	// Checks to make sure that display/window system was properly initialized and audio is turned on
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
 		std::cerr << "SDL Init failed: " << SDL_GetError() << "\n";
 		return 1;
 	}
@@ -30,7 +68,7 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 
 	// Creates bus object and loads ROM
 	Bus bus;
-	if (!bus.loadROM("roms/tobu.gb")) {
+	if (!bus.loadROM(romPath)) {
 		std::cerr << "Failed to load ROM\n";
 		return 1;
 	}
@@ -44,9 +82,32 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 	// Creates PPU object
 	PPU ppu(bus);
 
+	// Creates APU object
+	APU apu(bus);
+	bus.setAPU(&apu);
+
 	// Creates joypad
 	Joypad joypad(bus);
 	bus.setJoypad(&joypad);
+
+	// SDL audio setup
+	SDL_AudioSpec want, have;
+	SDL_zero(want);
+	want.freq = APU::SAMPLE_RATE;
+	want.format = AUDIO_F32SYS;
+	want.channels = 2;
+	want.samples = APU::BUFFER_SIZE;
+	want.callback = [](void* userdata, Uint8* stream, int len) {
+		APU* apu = (APU*)userdata;
+		apu->fillBuffer((float*)stream, len / sizeof(float));
+		};
+	want.userdata = &apu;
+
+	SDL_AudioDeviceID audioDevice = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
+	if (audioDevice == 0) {
+		std::cerr << "SDL Audio failed: " << SDL_GetError() << "\n";
+	}
+	SDL_PauseAudioDevice(audioDevice, 0); // start playing
 
 	// Creates texture pointer
 	SDL_Texture* texture = SDL_CreateTexture(
@@ -83,10 +144,14 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 				int taken = cpu.step();
 				cycles += taken;
 				timer.tick(taken); // Tick timer with every cpu step
-				ppu.tick(taken); // Ticks for the ppu
+				apu.tick(taken); // Tick the apu with every cpu step
+				for (int i = 0; i < taken; i++) {
+					ppu.tick(1);
+				}
 			}
 			catch (const std::runtime_error& e) {
-				std::cerr << e.what() << "\n";
+				std::cerr << "CPU ERROR: " << e.what()
+					<< " PC=" << std::hex << "\n";
 				cycles += 4;
 			}
 		}
@@ -124,6 +189,7 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 	bus.saveRAM();
 
 	//Destroy in reverse order of creation
+	SDL_CloseAudioDevice(audioDevice);
 	SDL_DestroyTexture(texture);
 	SDL_DestroyRenderer(renderer);
 	SDL_DestroyWindow(window);
