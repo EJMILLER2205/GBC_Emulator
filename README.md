@@ -2,8 +2,6 @@
 
 A Game Boy (DMG) emulator written from scratch in C++ using SDL2. Built as a systems programming project to demonstrate low-level hardware emulation, cycle-accurate timing, and audio/video rendering.
 
-![2048 running on the emulator](https://i.imgur.com/placeholder.png)
-
 ---
 
 ## Features
