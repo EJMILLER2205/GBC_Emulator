@@ -47,4 +47,8 @@ private:
 	std::array<uint8_t, 160 * 144> bgColorIndex{}; // tracks bg color index per pixel
 
 	bool vblankPending = false;
+
+	uint8_t latchedSCX = 0;
+	uint8_t latchedSCY = 0;
+	bool scrollLatched = false;
 };
