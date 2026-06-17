@@ -61,6 +61,11 @@ void PPU::tick(int cycles) {
 		}
 		else if (cycleCount < 80) {
 			setMode(2);
+			if (!scrollLatched) {
+				latchedSCX = getSCX();
+				latchedSCY = getSCY();
+				scrollLatched = true;
+			}
 			scanlineRendered = false;
 		}
 	}
@@ -73,6 +78,7 @@ void PPU::tick(int cycles) {
 		cycleCount -= 456;
 		setLY(ly + 1);
 		scanlineRendered = false;
+		scrollLatched = false;
 
 		uint8_t newLY = getLY();
 		uint8_t lyc = getLYC();
@@ -99,6 +105,8 @@ void PPU::tick(int cycles) {
 			frameComplete = true;
 			windowLine = 0;
 			bgColorIndex.fill(0);
+			latchedSCX = 0;
+			latchedSCY = 0;
 		}
 	}
 }
@@ -140,8 +148,8 @@ void PPU::renderBackground() {
 	if (ly >= 144) return; // Safety check
 
 	uint8_t lcdc = getLCDC();
-	uint8_t scy = getSCY();
-	uint8_t scx = getSCX();
+	uint8_t scy = latchedSCY;
+	uint8_t scx = latchedSCX;
 	uint8_t bgp = getBGP();
 
 	// Chooses tile map (LCDC bit 3)
@@ -328,9 +336,11 @@ void PPU::renderWindow() {
 
 	// Check if window is enabled
 	if (!(lcdc & 0x20)) return;
-
 	uint8_t wy = getWY();
 	uint8_t wx = getWX();
+
+	// Window is off screen — don't render
+	if (wx > 166 || wy > 143) return;
 
 	// Window only draws on scanlines at or below WY
 	if (ly < wy) return;
