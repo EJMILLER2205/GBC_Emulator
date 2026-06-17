@@ -97,7 +97,7 @@ Either:
 | 09-op r,r | ✅ Pass |
 | 10-bit ops | ✅ Pass |
 | 11-op a,(hl) | ✅ Pass |
-| dmg-acid2 | ✅ Mostly pass (minor border inaccuracies) |
+| dmg-acid2 | ✅ Mostly pass (minor black dot, does not appear in any other testes ROMS) |
 
 ---
 
