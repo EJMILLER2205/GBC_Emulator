@@ -1,6 +1,6 @@
-#include "bus.h"
 #include <fstream>
 #include <iostream>
+#include "bus.h"
 #include "joypad.h"
 #include "apu.h"
 
@@ -211,25 +211,13 @@ void Bus::write(uint16_t addr, uint8_t val) {
 	if (addr == 0xFF00) { if (joypad) joypad->write(val); return; } // If joypad is writted to and joypad is enabled, then write to joypad values and return
 
 	// APU trigger handling
-	if (addr == 0xFF14) {
+	if (addr >= 0xFF10 && addr <= 0xFF3F) {
 		io[addr - 0xFF00] = val;
-		if ((val & 0x80) && apu) {
-			// Only trigger if frequency is non-zero
-			uint8_t nr13 = io[0x13];
-			uint8_t nr14 = val;
-			int freq = ((nr14 & 0x07) << 8) | nr13;
-			if (freq > 0) {
-				io[0x26] |= 0x01;
-				apu->triggerChannel1();
-			}
-		}
-		return;
-	}
-	if (addr == 0xFF19) {
-		io[addr - 0xFF00] = val;
-		if ((val & 0x80) && apu) {
-			io[0x26] |= 0x02; // set channel 2 active in NR52
-			apu->triggerChannel2();
+		if (apu) {
+			if (addr == 0xFF14 && (val & 0x80)) apu->triggerChannel1();
+			if (addr == 0xFF19 && (val & 0x80)) apu->triggerChannel2();
+			if (addr == 0xFF1E && (val & 0x80)) apu->triggerChannel3();
+			if (addr == 0xFF23 && (val & 0x80)) apu->triggerChannel4();
 		}
 		return;
 	}
@@ -248,6 +236,7 @@ void Bus::write(uint16_t addr, uint8_t val) {
 	if (addr <= 0xCFFF) { wram[addr - 0xC000] = val; return; }
 	if (addr <= 0xDFFF) { wram[addr - 0xD000 + 0x1000] = val; return; } // Will implement bank checking later
 	if (addr <= 0xFE9F) { oam[addr - 0xFE00] = val; return; }
+	if (addr <= 0xFEFF) return;
 	if (addr <= 0xFF7F) { io[addr - 0xFF00] = val; return; }
 	if (addr <= 0xFFFE) { hram[addr - 0xFF80] = val; return; }
 	if (addr == 0xFFFF) { ie = val; return; }
