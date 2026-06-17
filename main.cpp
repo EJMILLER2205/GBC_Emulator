@@ -63,8 +63,8 @@ int main(int argc, char* argv[]) { // These arguments in main required for SDL2 
 		SDL_WINDOW_SHOWN								// Makes the window visible
 	);
 
-	// Creates a renderer (object responisible for drawing to window) with -1(select best graphics driver), and SDL_RENDERER_ACCELERATED(use the gpu rather than software rendering)
-	SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED); 
+	// Creates a renderer (object responisible for drawing to window) with -1(select best graphics driver), and SDL_RENDERER_ACCELERATED(use the gpu rather than software rendering), also adds v-sync to prevent screen tearing
+	SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
 	// Creates bus object and loads ROM
 	Bus bus;
